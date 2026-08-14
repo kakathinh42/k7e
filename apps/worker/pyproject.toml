@@ -1,0 +1,29 @@
+[project]
+name = "k7e-worker"
+version = "0.1.0"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+dependencies = [
+  "temporalio",
+  "sqlalchemy>=2",
+  "psycopg[binary]",
+  "pydantic>=2",
+  "pydantic-settings",
+  "litellm",
+  "httpx",
+  "structlog",
+  "k7e-api",
+]
+
+# k7e-api resolves to the workspace member (apps/api), not a registry
+# package. This replaces the old `file:///${PROJECT_ROOT}/apps/api` path
+# dependency that did not resolve inside Docker builds.
+[tool.uv.sources]
+k7e-api = { workspace = true }
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

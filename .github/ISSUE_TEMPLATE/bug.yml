@@ -1,0 +1,47 @@
+name: Bug report
+description: Report a reproducible bug
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug! Search existing issues first to
+        avoid duplicates. For security issues, use a **private** report — see SECURITY.md.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug. Include a minimal reproduction.
+      placeholder: "Steps to reproduce: 1) ... 2) ... Expected: ... Actual: ..."
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: k7e version
+      placeholder: "git commit SHA or tag"
+    validations:
+      required: true
+  - type: input
+    id: env
+    attributes:
+      label: Environment
+      placeholder: "OS, Python version, Node version, Docker, LLM gateway"
+    validations:
+      required: true
+  - type: dropdown
+    id: run-mode
+    attributes:
+      label: How did you run it?
+      options:
+        - Offline demo (make demo)
+        - docker compose (full stack)
+        - Services directly (uvicorn / worker)
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      render: shell

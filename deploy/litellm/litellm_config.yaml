@@ -1,0 +1,60 @@
+# LiteLLM gateway config.
+#
+# All model traffic goes through this LiteLLM proxy, then on to any
+# OpenAI-compatible (or Anthropic-compatible) backend. Point it at your own
+# gateway/provider by setting the env vars below — never hardcode secrets here.
+#
+#   LLM_GATEWAY_BASE_URL   - OpenAI-compatible base URL (e.g. https://api.openai.com/v1)
+#   LLM_GATEWAY_KEY        - API key for the OpenAI-compatible endpoint
+#   LLM_ANTHROPIC_BASE_URL - Anthropic-native base URL (optional; only for wiki-anthropic)
+#   LLM_ANTHROPIC_KEY      - API key for the Anthropic endpoint (optional)
+#
+# Model aliases are logical names used by the app (WIKI_MODEL, WIKI_VISION_MODEL).
+# Swap the backing model under each alias without touching application code.
+model_list:
+  # Default compile model via the OpenAI-compatible gateway.
+  - model_name: wiki-default
+    litellm_params:
+      model: openai/gpt-4o-mini
+      api_base: os.environ/LLM_GATEWAY_BASE_URL
+      api_key: os.environ/LLM_GATEWAY_KEY
+
+  # Optional Claude path. To use it, set WIKI_MODEL=wiki-anthropic in .env and
+  # provide LLM_ANTHROPIC_BASE_URL / LLM_ANTHROPIC_KEY.
+  - model_name: wiki-anthropic
+    litellm_params:
+      model: anthropic/claude-sonnet-4-6
+      api_base: os.environ/LLM_ANTHROPIC_BASE_URL
+      api_key: os.environ/LLM_ANTHROPIC_KEY
+
+  # Vision transcription of PDF pages / images (WIKI_VISION_MODEL).
+  # Must point at a vision-capable backing model.
+  - model_name: wiki-vision
+    litellm_params:
+      model: openai/gpt-4o-mini
+      api_base: os.environ/LLM_GATEWAY_BASE_URL
+      api_key: os.environ/LLM_GATEWAY_KEY
+
+  # Embeddings (OpenAI-compatible) via the gateway.
+  # Fail-fast: on a 429 we do NOT wait out a long Retry-After. A quick failure
+  # lets okf_mirror degrade gracefully (write the page WITHOUT vectors) instead
+  # of the mirror Temporal activity blocking until it times out. Vectors are
+  # backfilled on a later successful ingest.
+  - model_name: wiki-embed
+    litellm_params:
+      model: openai/text-embedding-3-small
+      api_base: os.environ/LLM_GATEWAY_BASE_URL
+      api_key: os.environ/LLM_GATEWAY_KEY
+      num_retries: 0
+      timeout: 20
+
+litellm_settings:
+  # No long Retry-After sleeps: a 429 fails fast so embeddings degrade instead
+  # of blocking the worker.
+  num_retries: 0
+  # Drop provider-specific params when a request falls back across providers.
+  drop_params: true
+
+general_settings:
+  # Set LITELLM_MASTER_KEY in .env (local dev default shown in .env.example).
+  master_key: os.environ/LITELLM_MASTER_KEY

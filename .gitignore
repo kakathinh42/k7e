@@ -1,0 +1,30 @@
+.env
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+node_modules/
+dist/
+coverage/
+.data/
+*.pyc
+.superpowers/
+
+# git worktrees created for isolated parallel work
+.claude/worktrees/
+
+# codegraph local index cache (machine-specific, not source)
+.codegraph/
+
+# build artifacts
+*.egg-info/
+
+# local agent/tool state (machine-specific, never committed)
+.opencode/
+.claude/settings.local.json
+
+# OS/editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
