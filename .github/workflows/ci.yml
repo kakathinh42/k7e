@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
       - run: uv venv --python 3.12
@@ -41,7 +41,7 @@ jobs:
         python-version: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
       # uv workspace installs api + worker + mcp + dev deps from uv.lock.
@@ -76,7 +76,7 @@ jobs:
           --health-retries 10
     steps:
       - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
       - run: uv venv --python 3.12
@@ -105,7 +105,7 @@ jobs:
           go-version: "1.23"
       - name: Install Temporal dev server (CLI)
         run: go install github.com/temporalio/cli/cmd/temporal@latest
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
       - run: uv venv --python 3.12
@@ -145,7 +145,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v7
       - name: pip-audit (Python, lock-aware)
         run: uv run --with pip-audit pip-audit --strict
       - name: npm audit (web)
