@@ -16,7 +16,7 @@
 # Build context: repo root (docker-compose sets context: .)
 
 # ─── Stage 1: Builder ────────────────────────────────────────────────────────
-FROM node:20-alpine AS builder
+FROM node:26-alpine AS builder
 
 WORKDIR /app
 
