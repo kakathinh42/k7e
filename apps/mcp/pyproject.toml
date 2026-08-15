@@ -1,0 +1,24 @@
+[project]
+name = "k7e-mcp"
+version = "0.1.0"
+description = "MCP server exposing k7e retrieval to chat-agent and other MCP clients"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+dependencies = [
+  "mcp>=1.0,<2",
+  "httpx",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-asyncio", "anyio"]
+
+[project.scripts]
+k7e-mcp = "k7e_mcp.server:main"
+k7e-mcp-http = "k7e_mcp.server:main_http"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

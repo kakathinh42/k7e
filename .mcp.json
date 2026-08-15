@@ -1,0 +1,26 @@
+{
+  "mcpServers": {
+    "postgres": {
+      "type": "stdio",
+      "command": "uvx",
+      "args": [
+        "postgres-mcp",
+        "--access-mode",
+        "restricted",
+        "postgresql://wiki:${POSTGRES_PASSWORD}@localhost:5435/wiki"
+      ],
+      "env": {}
+    },
+    "temporal": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "temporal-mcp"
+      ],
+      "env": {
+        "TEMPORAL_MCP_CONFIG": "./.claude/temporal-mcp.config.json"
+      }
+    }
+  }
+}

@@ -1,0 +1,33 @@
+# Root workspace manifest for k7e.
+#
+# This is a uv workspace: apps/api, apps/worker, and apps/mcp are workspace
+# members that share a single lockfile (uv.lock) for reproducible installs.
+# The worker depends on the api package via the workspace (see
+# apps/worker/pyproject.toml [tool.uv.sources]), so the historical
+# `file:///${PROJECT_ROOT}/apps/api` path hack and the Dockerfile dep-duplication
+# workaround are no longer needed.
+
+[tool.uv.workspace]
+members = ["apps/api", "apps/worker", "apps/mcp"]
+
+# Dev/lint tooling shared across the workspace.
+[tool.uv]
+dev-dependencies = [
+  "ruff>=0.6",
+  "pytest>=8",
+  "pytest-asyncio",
+  "anyio",
+]
+
+[tool.ruff]
+line-length = 99
+target-version = "py311"
+
+[tool.ruff.lint]
+# Start permissive: the historical codebase has pre-existing blind-except and
+# import-outside-top usages in tests. Phase-3 polish tightens these.
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["BLE001", "E402", "F401", "F811"]

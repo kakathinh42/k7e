@@ -1,0 +1,12 @@
+{
+  "temporal": {
+    "defaultProfile": "local",
+    "profiles": {
+      "local": {
+        "kind": "self-hosted",
+        "address": "localhost:7234",
+        "namespace": "default"
+      }
+    }
+  }
+}

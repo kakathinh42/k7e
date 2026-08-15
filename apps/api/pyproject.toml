@@ -1,0 +1,39 @@
+[project]
+name = "k7e-api"
+version = "0.1.0"
+license = "Apache-2.0"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi",
+  "uvicorn[standard]",
+  "pydantic>=2",
+  "pydantic-settings",
+  "sqlalchemy>=2",
+  "psycopg[binary]",
+  "pgvector",
+  "alembic",
+  "temporalio",
+  "litellm",
+  "prometheus-client",
+  "structlog",
+  "python-multipart",
+  "httpx",
+  "pyyaml",
+  "filelock>=3.13",
+  # Vision extraction of PDF/image uploads: pypdfium2 rasterizes PDF pages
+  # (permissive licence — pymupdf is AGPL); Pillow encodes bitmaps to JPEG.
+  "pypdfium2",
+  "pillow",
+  "pyjwt[crypto]>=2.8",
+  "bcrypt>=4.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest", "pytest-asyncio", "anyio"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

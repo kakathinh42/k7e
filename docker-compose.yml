@@ -1,0 +1,222 @@
+# docker-compose.yml
+#
+# Compose V2 syntax (no "version:" key required).
+# All six services: postgres, temporal, litellm, api, worker, web.
+# Variables are interpolated from .env (copy .env.example → .env first).
+
+services:
+
+  # ── PostgreSQL ─────────────────────────────────────────────────────────────
+  postgres:
+    image: pgvector/pgvector:pg16
+    # Debian Bookworm's tzdata drops legacy zone aliases, so the base image has
+    # Asia/Ho_Chi_Minh but NOT Asia/Saigon. Clients (e.g. DBeaver/pgjdbc) forward
+    # the OS zone name and Postgres rejects unknown ones with
+    # `FATAL: invalid value for parameter "TimeZone": "Asia/Saigon"`. Restore the
+    # alias at startup, then hand off to the normal entrypoint.
+    entrypoint:
+      - bash
+      - -c
+      - |
+        ln -sf /usr/share/zoneinfo/Asia/Ho_Chi_Minh /usr/share/zoneinfo/Asia/Saigon
+        exec /usr/local/bin/docker-entrypoint.sh postgres
+    # Host port published so local tooling and the Postgres MCP server can reach
+    # the DB from the host. 5435 avoids clashing with other local Postgres
+    # containers on this host (5432/5433/5437 are already taken).
+    ports:
+      - "5435:5432"
+    environment:
+      POSTGRES_USER:     ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB:       ${POSTGRES_DB}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ── Temporal (dev server – no external Cassandra/MySQL needed) ─────────────
+  temporal:
+    image: temporalio/temporal:1.8.2
+    command: ["server", "start-dev", "--ip", "0.0.0.0"]
+    ports:
+      - "7234:7233"
+    healthcheck:
+      test: ["CMD", "temporal", "operator", "namespace", "list", "--address", "localhost:7233"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    restart: unless-stopped
+
+  # ── LiteLLM ────────────────────────────────────────────────────────────────
+  litellm:
+    # LiteLLM stable channel. Pin by digest for release reproducibility.
+    image: ghcr.io/berriai/litellm:main-stable
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    volumes:
+      - ./deploy/litellm/litellm_config.yaml:/app/config.yaml:ro
+    environment:
+      # Any OpenAI-compatible gateway (OpenAI, Azure, self-hosted, etc.).
+      # Key comes from .env (not committed).
+      LLM_GATEWAY_KEY: ${LLM_GATEWAY_KEY}
+      LLM_GATEWAY_BASE_URL: ${LLM_GATEWAY_BASE_URL:-https://api.openai.com/v1}
+      # Optional Anthropic-native gateway. Required only when WIKI_MODEL=wiki-anthropic.
+      LLM_ANTHROPIC_BASE_URL: ${LLM_ANTHROPIC_BASE_URL:-https://api.anthropic.com}
+      LLM_ANTHROPIC_KEY: ${LLM_ANTHROPIC_KEY}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-sk-local}
+    ports:
+      - "4001:4000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:4000/health/liveliness').status==200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
+
+  # ── API ────────────────────────────────────────────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    env_file: .env
+    environment:
+      # Override service-discovery URLs to use Docker service names
+      DATABASE_URL:      postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      TEMPORAL_HOST:     temporal:7233
+      LITELLM_BASE_URL:  http://litellm:4000
+      OBJECT_STORE_PATH: /data/objects
+      # Fail-fast on gateway 429s (see the worker service) so search-time query
+      # embedding doesn't hang on a long Retry-After.
+      LLM_NUM_RETRIES: "0"
+      EMBED_TIMEOUT_SECONDS: "20"
+      # Read-only view of the OKF bundle so GET /lint can read the canonical
+      # store. The worker owns writes; the api only inspects it.
+      OKF_BUNDLE_PATH:   /data/okf-bundle
+      # Keyword-only mode while the wiki-embed model is being fine-tuned. Search
+      # falls back to keyword + recency; /lint/related is unavailable. Flip to
+      # "true" (or remove) and restart to re-enable vector search.
+      EMBEDDINGS_ENABLED: ${EMBEDDINGS_ENABLED-true}
+    volumes:
+      - objects:/data/objects
+      - okfbundle:/data/okf-bundle:ro
+    ports:
+      - "8001:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/readyz').status==200 else 1)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      temporal:
+        condition: service_healthy
+      litellm:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── MCP server (streamable-http) ───────────────────────────────────────────
+  # Exposes search_wiki / get_wiki_page to MCP clients. Reachable two ways:
+  #   - on the host at http://localhost:9100/mcp (published port), and
+  #   - by service name http://k7e-mcp:9100/mcp inside k7e default network.
+  # Thin HTTP client over the api.
+  k7e-mcp:
+    build:
+      context: .
+      dockerfile: apps/mcp/Dockerfile
+    environment:
+      K7E_API_BASE: http://api:8000
+      K7E_MCP_HOST:  "0.0.0.0"
+      K7E_MCP_PORT:  "9100"
+    ports:
+      - "9100:9100"
+    healthcheck:
+      # The streamable-http endpoint needs a session, so just check the port is
+      # accepting connections (a TCP connect is enough for liveness).
+      test: ["CMD", "python", "-c", "import socket; socket.create_connection(('localhost', 9100), 2).close()"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  # ── Worker ─────────────────────────────────────────────────────────────────
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    env_file: .env
+    environment:
+      # Same service-discovery overrides as the api service
+      DATABASE_URL:      postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      TEMPORAL_HOST:     temporal:7233
+      LITELLM_BASE_URL:  http://litellm:4000
+      OBJECT_STORE_PATH: /data/objects
+      # Fail-fast on gateway 429s: 0 client-side retries so the embed client
+      # doesn't honor a long Retry-After (the mirror then degrades gracefully —
+      # writes the page without vectors — instead of timing out). The compile
+      # step stays resilient via the litellm proxy's GLM-5.2 fallback + Temporal
+      # activity retries. Tune up once the gateway quota is healthy.
+      LLM_NUM_RETRIES: "0"
+      EMBED_TIMEOUT_SECONDS: "20"
+      # v2 OKF canonical store (git bundle of typed Markdown pages) — must
+      # persist across rebuilds, so it lives on a named volume, not the image.
+      OKF_BUNDLE_PATH:   /data/okf-bundle
+      # Keyword-only mode while the wiki-embed model is being fine-tuned. The
+      # mirror skips embedding entirely. Flip to "true" (or remove) and restart
+      # to re-enable; a later re-mirror will embed the pages incrementally.
+      EMBEDDINGS_ENABLED: ${EMBEDDINGS_ENABLED-true}
+    volumes:
+      - objects:/data/objects
+      - okfbundle:/data/okf-bundle
+    healthcheck:
+      test: ["CMD", "test", "-f", "/tmp/worker_ready"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      temporal:
+        condition: service_started
+      litellm:
+        condition: service_started
+    restart: unless-stopped
+
+  # ── Web (SPA served by nginx) ───────────────────────────────────────────────
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      # Web auth is baked at build time (Vite). Defaults = dev header seam;
+      # set VITE_AUTH_MODE=password in .env for native login (see .env.example).
+      args:
+        VITE_AUTH_MODE: ${VITE_AUTH_MODE:-dev}
+        VITE_IDENTITY_CLAIM: ${VITE_IDENTITY_CLAIM:-}
+    ports:
+      - "5174:80"
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 80 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    depends_on:
+      - api
+    restart: unless-stopped
+
+# ── Named volumes ─────────────────────────────────────────────────────────────
+volumes:
+  pgdata:
+  objects:
+  okfbundle:
